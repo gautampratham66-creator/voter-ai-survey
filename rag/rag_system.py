@@ -5,7 +5,7 @@ Allows natural language querying of voter survey database
 """
 
 # pip install chromadb langchain langchain-anthropic sentence-transformers
-
+import streamlit as st
 import chromadb
 from chromadb.utils import embedding_functions
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -86,13 +86,13 @@ def rag_query(question: str, top_k: int = 5) -> str:
     # Step 2: Build context
     context = "\n\n---\n".join(retrieved_docs) if retrieved_docs else "No relevant records found."
 
-    # Step 3: Prompt Claude with context
+    
 
                                                                             
-      llm = ChatGoogleGenerativeAI(
-                                                                                    
-       model="gemini-2.0-flash",
-        google_api_key="YOUR_GEMINI_API_KEY"
+     # Step 3: Prompt Gemini with context
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
+        google_api_key=st.secrets["GEMINI_API_KEY"]
     )
 
     prompt = f"""You are an AI analyst for a government Voter ID Survey system.
