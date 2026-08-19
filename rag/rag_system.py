@@ -8,7 +8,7 @@ Allows natural language querying of voter survey database
 
 import chromadb
 from chromadb.utils import embedding_functions
-from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain_community.vectorstores import Chroma
@@ -87,9 +87,12 @@ def rag_query(question: str, top_k: int = 5) -> str:
     context = "\n\n---\n".join(retrieved_docs) if retrieved_docs else "No relevant records found."
 
     # Step 3: Prompt Claude with context
-    llm = ChatAnthropic(
-        model="claude-sonnet-4-6",
-        anthropic_api_key="YOUR_ANTHROPIC_API_KEY"
+
+                                                                            
+      llm = ChatGoogleGenerativeAI(
+                                                                                    
+       model="gemini-2.0-flash",
+        google_api_key="YOUR_GEMINI_API_KEY"
     )
 
     prompt = f"""You are an AI analyst for a government Voter ID Survey system.
@@ -107,6 +110,7 @@ ANSWER:"""
     response = llm.invoke(prompt)
     return response.content
 
+   
 # ─── Filtered Queries (by district/gender) ──────────────────────────────────
 def query_by_district(district: str) -> list:
     """Retrieve all records for a specific district"""
