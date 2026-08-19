@@ -6,16 +6,15 @@ Each agent has a specific role in the Voter ID Survey pipeline
 
 # ─── Install requirements ───────────────────────────────────────────────────
 # pip install crewai langchain langchain-anthropic chromadb
-
 from crewai import Agent, Task, Crew, Process
-from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.tools import Tool
 import json
-
+import streamlit as st
 # ─── LLM Brain (Claude) ─────────────────────────────────────────────────────
-llm = ChatAnthropic(
-    model="claude-sonnet-4-6",
-    anthropic_api_key="YOUR_ANTHROPIC_API_KEY"  # Replace with actual key
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.0-flash",
+   google_api_key=st.secrets["GEMINI_API_KEY"]
 )
 
 # ─── Custom Tools for Agents ────────────────────────────────────────────────
