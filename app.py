@@ -81,6 +81,7 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif;}
   box-shadow:0 6px 24px rgba(11,27,51,.10);border-left:5px solid;margin-bottom:1rem;
   transition:transform .25s ease,box-shadow .25s ease;
   opacity:0;transform:translateY(12px);animation:riseIn .5s ease forwards;
+  color:var(--text-light-bg) !important;
 }
 .kcard:hover{transform:translateY(-4px);box-shadow:0 14px 36px rgba(11,27,51,.18);}
 .kcard .lbl{font-size:.72rem;color:var(--text-light-bg-muted) !important;font-weight:700;letter-spacing:.6px;text-transform:uppercase;}
