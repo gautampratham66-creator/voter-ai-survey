@@ -16,17 +16,28 @@ it logs what it *would* send instead of actually sending, so you can wire
 this up safely before you have real API keys.
 
     pip install twilio python-dotenv   (email uses stdlib smtplib, no extra dep)
+
+This file also doubles as a CLI. Run it directly to notify everyone
+eligible-and-missing in a survey CSV:
+
+    python notifications/notify_service.py path/to/survey.csv
+    python notifications/notify_service.py path/to/survey.csv --limit 50
+    python notifications/notify_service.py path/to/survey.csv --high-risk-only
 """
 
 import os
 import csv
 import smtplib
 import ssl
+import argparse
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage
 from typing import Optional
+
+import pandas as pd
 
 try:
     from dotenv import load_dotenv
@@ -223,17 +234,50 @@ def find_eligible_missing_voters_from_df(df) -> list:
             age=int(row["age"]),
             gender=row.get("gender", ""),
             district=row.get("district", ""),
-            phone_number=str(row["phone_number"]) if "phone_number" in row and not pd_isna(row["phone_number"]) else None,
-            email=row.get("email") if "email" in row and not pd_isna(row.get("email")) else None,
+            phone_number=str(row["phone_number"]) if "phone_number" in row and not pd.isna(row["phone_number"]) else None,
+            email=row.get("email") if "email" in row and not pd.isna(row.get("email")) else None,
             nearest_seva_camp=row.get("nearest_seva_camp"),
             risk_level=row.get("risk_level"),
         ))
     return records
 
 
-def pd_isna(value) -> bool:
-    try:
-        import pandas as pd
-        return pd.isna(value)
-    except Exception:
-        return value is None
+# ─── CLI runner ────────────────────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser(description="Notify eligible citizens missing a Voter ID")
+    parser.add_argument("csv_path", help="Path to survey CSV (age, gender, district, has_voter_id, phone_number, ...)")
+    parser.add_argument("--limit", type=int, default=None, help="Only notify the first N matching records")
+    parser.add_argument("--high-risk-only", action="store_true",
+                         help="Only notify records already flagged HIGH risk in the risk_level column, if present")
+    parser.add_argument("--log", default="notifications/outreach_log.csv", help="Path to write the outreach log CSV")
+    args = parser.parse_args()
+
+    df = pd.read_csv(args.csv_path)
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    records = find_eligible_missing_voters_from_df(df)
+
+    if args.high_risk_only:
+        records = [r for r in records if (r.risk_level or "").upper() == "HIGH"]
+
+    if args.limit:
+        records = records[: args.limit]
+
+    print(f"[Notify] {len(records)} eligible citizen(s) without a Voter ID to notify")
+    if not records:
+        return
+
+    manager = NotificationManager()
+    results = manager.notify_and_log(records, log_path=args.log)
+
+    sent = sum(1 for r in results if r.status == "sent")
+    dry = sum(1 for r in results if r.status == "dry_run")
+    skipped = sum(1 for r in results if r.status == "skipped")
+    failed = sum(1 for r in results if r.status == "failed")
+
+    print(f"[Notify] Done — sent={sent}, dry_run={dry}, skipped={skipped}, failed={failed}")
+    print(f"[Notify] Log written to {args.log}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
