@@ -3,30 +3,117 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import random
+import os
+import tempfile
 from datetime import date
 
 st.set_page_config(page_title="VoterAI Survey System", page_icon="🗳️", layout="wide")
 
+# ── Optional imports: real ML training + notifications ──────────────────────
+# Guarded so the dashboard still loads even if these files aren't in the repo
+# yet, showing a friendly warning on the relevant page instead of crashing.
+ML_AVAILABLE = True
+try:
+    from ml_model.train_from_csv import train_model_from_csv, load_survey_csv, MODEL_PATH, ENCODERS_PATH
+    from ml_model.predictor import predict_voter_id as real_predict_voter_id
+except Exception:
+    ML_AVAILABLE = False
+
+NOTIFY_AVAILABLE = True
+try:
+    from notifications.notify_service import (
+        NotificationManager, find_eligible_missing_voters_from_df,
+        SMSChannel, EmailChannel,
+    )
+except Exception:
+    NOTIFY_AVAILABLE = False
+
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,600&display=swap');
+
+:root{
+  --ink:#0B1B33; --ink-2:#122A4A; --ink-3:#1B3A63;
+  --paper:#F7F8FA; --paper-2:#FFFFFF;
+  --text-dark-bg:#E9EEF8; --text-dark-bg-muted:#9FB1CC;
+  --text-light-bg:#101828; --text-light-bg-muted:#66707E;
+  --marigold:#F5A623; --marigold-deep:#D9861A;
+  --teal:#14B8A6; --terracotta:#E2572B; --violet:#7C6FF0;
+}
+
 html,body,[class*="css"]{font-family:'Inter',sans-serif;}
-.hdr{background:linear-gradient(135deg,#0f172a,#1e3a5f,#0d47a1);color:white;padding:2rem 2.5rem;border-radius:18px;margin-bottom:2rem;box-shadow:0 8px 40px rgba(13,71,161,.35);}
-.hdr h1{font-size:2rem;font-weight:800;margin:0;}
-.hdr p{font-size:.95rem;opacity:.8;margin:.4rem 0 0;}
-.kcard{background:white;border-radius:14px;padding:1.3rem 1.5rem;box-shadow:0 4px 20px rgba(0,0,0,.08);border-left:5px solid;margin-bottom:1rem;transition:transform .2s;}
-.kcard:hover{transform:translateY(-3px);}
-.kcard .lbl{font-size:.75rem;color:#777;font-weight:600;text-transform:uppercase;letter-spacing:.8px;}
-.kcard .val{font-size:2rem;font-weight:800;color:#0f172a;margin:.15rem 0;}
-.kcard .sub{font-size:.75rem;color:#aaa;}
-.rpt{background:white;border-radius:14px;padding:1.6rem 2rem;box-shadow:0 4px 20px rgba(0,0,0,.08);margin-bottom:1.2rem;border-top:4px solid #1565c0;}
-.art{background:white;border-radius:14px;padding:1.5rem 2rem;box-shadow:0 4px 20px rgba(0,0,0,.08);margin-bottom:1rem;border-left:4px solid #2e7d32;}
-.rag{background:#f0f4ff;border-left:4px solid #3949ab;border-radius:8px;padding:1rem 1.2rem;margin-top:.8rem;font-size:.9rem;color:#1a237e;line-height:1.7;}
-.bdg{display:inline-block;padding:.2rem .65rem;border-radius:999px;font-size:.7rem;font-weight:700;}
-.bg{background:#e3f2fd;color:#1565c0;}.bo{background:#fff3e0;color:#e65100;}
-.bgr{background:#e8f5e9;color:#2e7d32;}.bp{background:#f3e5f5;color:#6a1b9a;}
-.br{background:#ffebee;color:#c62828;}
-.stButton>button{background:linear-gradient(135deg,#1565c0,#0d47a1);color:white;border:none;border-radius:8px;padding:.5rem 1.5rem;font-weight:600;}
+
+.stApp{
+  background:
+    radial-gradient(1200px 600px at 8% -10%, rgba(245,166,35,.10), transparent 60%),
+    radial-gradient(1000px 520px at 100% 0%, rgba(20,184,166,.10), transparent 55%),
+    var(--ink);
+}
+
+[data-testid="stSidebar"]{background:linear-gradient(180deg,var(--ink-2),var(--ink)) !important;}
+[data-testid="stSidebar"] *{color:var(--text-dark-bg) !important;}
+[data-testid="stAppViewContainer"] h1,[data-testid="stAppViewContainer"] h2,
+[data-testid="stAppViewContainer"] h3,[data-testid="stAppViewContainer"] p,
+[data-testid="stAppViewContainer"] label,[data-testid="stAppViewContainer"] span{
+  color:var(--text-dark-bg);
+}
+.stTabs [data-baseweb="tab"]{color:var(--text-dark-bg-muted);font-weight:600;}
+.stTabs [aria-selected="true"]{color:var(--marigold) !important;}
+[data-testid="stExpander"]{background:var(--ink-2);border-radius:12px;border:1px solid rgba(245,166,35,.15);}
+
+.hdr{
+  position:relative;overflow:hidden;
+  background:linear-gradient(135deg,var(--ink) 0%,var(--ink-3) 55%,#14345c 100%);
+  color:var(--text-dark-bg);padding:2.2rem 2.6rem;border-radius:20px;margin-bottom:2rem;
+  box-shadow:0 20px 60px rgba(0,0,0,.35);border:1px solid rgba(245,166,35,.15);
+}
+.hdr::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(115deg,transparent 20%,rgba(245,166,35,.16) 40%,transparent 60%);
+  background-size:200% 100%;animation:sheen 7s ease-in-out infinite;
+}
+@keyframes sheen{0%{background-position:200% 0}100%{background-position:-50% 0}}
+.hdr h1{font-family:'Fraunces',serif;font-weight:600;font-style:italic;font-size:2.3rem;margin:0;position:relative;}
+.hdr p{font-size:.95rem;margin:.5rem 0 0;position:relative;color:var(--text-dark-bg-muted);}
+
+.kcard{
+  background:var(--paper-2);border-radius:16px;padding:1.4rem 1.6rem;
+  box-shadow:0 6px 24px rgba(11,27,51,.10);border-left:5px solid;margin-bottom:1rem;
+  transition:transform .25s ease,box-shadow .25s ease;
+  opacity:0;transform:translateY(12px);animation:riseIn .5s ease forwards;
+}
+.kcard:hover{transform:translateY(-4px);box-shadow:0 14px 36px rgba(11,27,51,.18);}
+.kcard .lbl{font-size:.72rem;color:var(--text-light-bg-muted) !important;font-weight:700;letter-spacing:.6px;text-transform:uppercase;}
+.kcard .val{font-size:2.1rem;font-weight:800;color:var(--text-light-bg) !important;margin:.2rem 0;}
+.kcard .sub{font-size:.76rem;color:#8A93A6 !important;}
+@keyframes riseIn{to{opacity:1;transform:translateY(0)}}
+div[data-testid="column"]:nth-of-type(1) .kcard{animation-delay:.05s}
+div[data-testid="column"]:nth-of-type(2) .kcard{animation-delay:.15s}
+div[data-testid="column"]:nth-of-type(3) .kcard{animation-delay:.25s}
+div[data-testid="column"]:nth-of-type(4) .kcard{animation-delay:.35s}
+div[data-testid="column"]:nth-of-type(5) .kcard{animation-delay:.45s}
+
+.rpt{background:var(--paper-2);border-radius:16px;padding:1.6rem 2rem;box-shadow:0 6px 24px rgba(11,27,51,.10);margin-bottom:1.2rem;border-top:4px solid var(--marigold);color:var(--text-light-bg);}
+.rpt h2,.rpt h3,.rpt p,.rpt li,.rpt td,.rpt th{color:var(--text-light-bg) !important;}
+.art{background:var(--paper-2);border-radius:16px;padding:1.5rem 2rem;box-shadow:0 6px 24px rgba(11,27,51,.10);margin-bottom:1rem;border-left:4px solid var(--teal);}
+.art h3{color:var(--text-light-bg) !important;}
+.rag{background:rgba(20,184,166,.08);border-left:4px solid var(--teal);border-radius:10px;padding:1rem 1.2rem;margin-top:.8rem;font-size:.9rem;color:#0B3B36 !important;line-height:1.7;}
+
+.bdg{display:inline-block;padding:.25rem .7rem;border-radius:999px;font-size:.7rem;font-weight:700;}
+.bg{background:rgba(124,111,240,.14);color:#5B4FD6;}
+.bo{background:rgba(245,166,35,.16);color:#B5730A;}
+.bgr{background:rgba(20,184,166,.14);color:#0E8074;}
+.bp{background:rgba(27,58,99,.12);color:#1B3A63;}
+.br{background:rgba(226,87,43,.14);color:#B23E1B;}
+
+.stButton>button{
+  background:linear-gradient(135deg,var(--marigold),var(--marigold-deep));
+  color:#1B1200;border:none;border-radius:10px;padding:.55rem 1.6rem;font-weight:700;
+  transition:transform .18s ease,box-shadow .18s ease,filter .18s ease;
+  box-shadow:0 6px 18px rgba(245,166,35,.25);
+}
+.stButton>button:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(245,166,35,.4);filter:brightness(1.05);}
+.stButton>button:active{transform:translateY(0);}
 </style>
 """, unsafe_allow_html=True)
 
@@ -102,18 +189,26 @@ def calc(fams):
 
 if "fams" not in st.session_state: st.session_state.fams=FAMILIES.copy()
 if "chat" not in st.session_state: st.session_state.chat=[]
+if "survey_df" not in st.session_state: st.session_state.survey_df=None
+if "model_trained" not in st.session_state:
+    st.session_state.model_trained = ML_AVAILABLE and os.path.exists(MODEL_PATH) if ML_AVAILABLE else False
+if "notify_results" not in st.session_state: st.session_state.notify_results=None
 s=calc(st.session_state.fams)
 
 with st.sidebar:
     st.markdown("### 🗳️ VoterAI")
     st.markdown("*AI Census Survey System*")
     st.markdown("---")
-    pg=st.radio("",["📊 Dashboard & Graphs","➕ Add Survey","🤖 AI Agents","💬 RAG Chatbot","📁 Family Records","📈 ML Predictions","📄 Reports","📰 Articles & Insights"],label_visibility="collapsed")
+    pg=st.radio("",["📊 Dashboard & Graphs","➕ Add Survey","🤖 AI Agents","💬 RAG Chatbot","📁 Family Records","📈 ML Predictions","🚀 Train & Notify","📄 Reports","📰 Articles & Insights"],label_visibility="collapsed")
     st.markdown("---")
     st.success(f"✅ {len(st.session_state.fams)} Families")
     st.info(f"🧠 Coverage: {s['cv']}%")
     if s['ms']>0: st.warning(f"⚠️ {s['ms']} Missing IDs")
     else: st.success("✅ All Registered")
+    if st.session_state.model_trained:
+        st.success("🧠 Real ML model: trained")
+    elif ML_AVAILABLE:
+        st.caption("🧠 Real ML model: not trained yet")
 
 # ── DASHBOARD ────────────────────────────────────────────────────────────────
 if pg=="📊 Dashboard & Graphs":
@@ -324,19 +419,35 @@ elif pg=="📈 ML Predictions":
     st.markdown('<div class="hdr"><h1>📈 ML Predictions & Analytics</h1><p>Random Forest · Isolation Forest · Feature Analysis</p></div>',unsafe_allow_html=True)
     t1,t2,t3=st.tabs(["🎯 Predict Individual","🚨 Anomaly Detection","📊 Feature Importance"])
     with t1:
+        use_real = False
+        if ML_AVAILABLE and st.session_state.model_trained:
+            use_real = st.checkbox("🧠 Use real trained model (from Train & Notify page)", value=True)
+        elif ML_AVAILABLE:
+            st.caption("💡 Train a model on the 🚀 Train & Notify page to enable real predictions here. Using demo simulation for now.")
         pc=st.columns(4)
         with pc[0]: pa=st.slider("Age",18,80,28)
         with pc[1]: pg2=st.selectbox("Gender",["Male","Female"])
         with pc[2]: pd2=st.selectbox("District",["Muzaffarnagar","Shamli","Hapur","Haridwar","Meerut","Saharanpur"])
         with pc[3]: pv=st.selectbox("Area",["Rural","Urban","Semi-Urban"])
         if st.button("🧠 Predict"):
-            sc=55+(pa-18)/62*35+(8 if pg2=="Male" else 0)+(10 if pv=="Urban" else -5 if pv=="Rural" else 3)+random.uniform(-5,5)
-            sc=min(max(sc,10),95); sc=round(sc,1); mp=round(100-sc,1)
-            risk="HIGH 🔴" if mp>55 else "MEDIUM 🟡" if mp>35 else "LOW 🟢"
+            if use_real:
+                try:
+                    result = real_predict_voter_id(age=pa, gender=pg2, district=pd2, village_type=pv)
+                    sc = result["prob_has_voter_id"]; mp = result["prob_missing_voter_id"]
+                    risk_txt = {"HIGH":"HIGH 🔴","MEDIUM":"MEDIUM 🟡","LOW":"LOW 🟢"}[result["risk_level"]]
+                    source_note = "Random Forest (trained on your real survey CSV)"
+                except Exception as e:
+                    st.error(f"Real model prediction failed, falling back to demo: {e}")
+                    use_real = False
+            if not use_real:
+                sc=55+(pa-18)/62*35+(8 if pg2=="Male" else 0)+(10 if pv=="Urban" else -5 if pv=="Rural" else 3)+random.uniform(-5,5)
+                sc=min(max(sc,10),95); sc=round(sc,1); mp=round(100-sc,1)
+                risk_txt="HIGH 🔴" if mp>55 else "MEDIUM 🟡" if mp>35 else "LOW 🟢"
+                source_note="Demo simulation (not a trained model)"
             fig=go.Figure(go.Bar(x=["Has Voter ID","Missing"],y=[sc,mp],marker_color=["#1565c0","#ef5350"],text=[f"{sc}%",f"{mp}%"],textposition="outside"))
             fig.update_layout(height=260,yaxis=dict(range=[0,110]),margin=dict(t=10,b=10))
             st.plotly_chart(fig,use_container_width=True)
-            st.markdown(f'<div class="rag"><b>Random Forest Prediction:</b><br>Profile: {pa}yr {pg2} · {pd2} · {pv}<br>✅ Prob has ID: <b>{sc}%</b> | ⚠️ Prob missing: <b>{mp}%</b><br>Risk: <b>{risk}</b><br>{"🚨 Immediate outreach" if mp>55 else "📋 Include in next drive" if mp>35 else "✅ Likely registered"}</div>',unsafe_allow_html=True)
+            st.markdown(f'<div class="rag"><b>{source_note}:</b><br>Profile: {pa}yr {pg2} · {pd2} · {pv}<br>✅ Prob has ID: <b>{sc}%</b> | ⚠️ Prob missing: <b>{mp}%</b><br>Risk: <b>{risk_txt}</b><br>{"🚨 Immediate outreach" if mp>55 else "📋 Include in next drive" if mp>35 else "✅ Likely registered"}</div>',unsafe_allow_html=True)
     with t2:
         if st.button("🔍 Run Anomaly Scan"):
             import time
@@ -356,6 +467,102 @@ elif pg=="📈 ML Predictions":
         fig.update_layout(height=290,xaxis=dict(range=[0,50]),margin=dict(t=10,b=10))
         st.plotly_chart(fig,use_container_width=True)
         st.caption("Age is the strongest predictor of Voter ID possession, followed by gender and district.")
+
+# ── TRAIN & NOTIFY ─────────────────────────────────────────────────────────────
+elif pg=="🚀 Train & Notify":
+    st.markdown('<div class="hdr"><h1>🚀 Train on Real Data & Send Outreach</h1><p>Upload your survey CSV · Train the real ML model · Notify citizens missing a Voter ID</p></div>',unsafe_allow_html=True)
+
+    if not ML_AVAILABLE or not NOTIFY_AVAILABLE:
+        st.error("⚠️ ml_model/train_from_csv.py, ml_model/predictor.py, and notifications/notify_service.py must all be present in your repo for this page to work. Add them, then redeploy.")
+    else:
+        st.subheader("1️⃣ Upload your survey CSV")
+        st.caption("Expected columns: age, gender, district, area_type, has_voter_id — plus optional name, phone_number, email, nearest_seva_camp, risk_level")
+        csv_file = st.file_uploader("Survey CSV", type=["csv"], key="survey_csv_uploader")
+
+        if csv_file:
+            df = pd.read_csv(csv_file)
+            df.columns = [c.strip().lower() for c in df.columns]
+            st.session_state.survey_df = df
+            st.success(f"✅ Loaded {len(df)} rows")
+            st.dataframe(df.head(10), use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        st.subheader("2️⃣ Train the model on this data")
+        if st.session_state.survey_df is None:
+            st.info("Upload a CSV above first.")
+        else:
+            if st.button("🧠 Train Random Forest on this CSV"):
+                with st.spinner("Training on your real survey data..."):
+                    tmp_path = os.path.join(tempfile.gettempdir(), "streamlit_survey_upload.csv")
+                    st.session_state.survey_df.to_csv(tmp_path, index=False)
+                    try:
+                        model, accuracy, report = train_model_from_csv(tmp_path)
+                        st.session_state.model_trained = True
+                        st.success(f"✅ Model trained — accuracy: {accuracy:.1%}")
+                        st.code(report)
+                    except Exception as e:
+                        st.error(f"Training failed: {e}")
+
+        st.markdown("---")
+        st.subheader("3️⃣ Find citizens eligible but missing a Voter ID")
+        if st.session_state.survey_df is None:
+            st.info("Upload a CSV above first.")
+        else:
+            missing_df = st.session_state.survey_df[
+                (st.session_state.survey_df["age"] >= 18) &
+                (st.session_state.survey_df["has_voter_id"] == "No")
+            ]
+            st.markdown(f'<div class="kcard" style="border-color:#e65100"><div class="lbl">Eligible, Missing Voter ID</div><div class="val">{len(missing_df)}</div><div class="sub">out of {len(st.session_state.survey_df)} total rows</div></div>',unsafe_allow_html=True)
+            st.dataframe(missing_df.head(20), use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            st.subheader("4️⃣ Send outreach notifications")
+
+            sms_ready = SMSChannel().is_configured()
+            email_ready = EmailChannel().is_configured()
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                st.info("📱 SMS: **LIVE**" if sms_ready else "📱 SMS: **DRY-RUN** (no TWILIO_* env vars set)")
+            with cc2:
+                st.info("📧 Email: **LIVE**" if email_ready else "📧 Email: **DRY-RUN** (no SMTP_* env vars set)")
+
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                limit = st.number_input("Limit (0 = no limit)", min_value=0, value=10, step=5)
+            with fc2:
+                high_risk_only = False
+                if "risk_level" in st.session_state.survey_df.columns:
+                    high_risk_only = st.checkbox("Only HIGH risk citizens")
+
+            if st.button("📨 Run Notifications"):
+                records = find_eligible_missing_voters_from_df(st.session_state.survey_df)
+                if high_risk_only:
+                    records = [r for r in records if (r.risk_level or "").upper() == "HIGH"]
+                if limit:
+                    records = records[:limit]
+
+                with st.spinner(f"Notifying {len(records)} citizen(s)..."):
+                    manager = NotificationManager()
+                    results = manager.notify_and_log(records)
+
+                sent = sum(1 for r in results if r.status == "sent")
+                dry = sum(1 for r in results if r.status == "dry_run")
+                skipped = sum(1 for r in results if r.status == "skipped")
+                failed = sum(1 for r in results if r.status == "failed")
+
+                st.session_state.notify_results = pd.DataFrame([{
+                    "Name": r.record.name, "District": r.record.district,
+                    "Channel": r.channel, "Status": r.status, "Detail": r.detail
+                } for r in results])
+
+                rc1,rc2,rc3,rc4 = st.columns(4)
+                rc1.markdown(f'<div class="kcard" style="border-color:#2e7d32"><div class="lbl">Sent</div><div class="val">{sent}</div></div>',unsafe_allow_html=True)
+                rc2.markdown(f'<div class="kcard" style="border-color:#1565c0"><div class="lbl">Dry-run</div><div class="val">{dry}</div></div>',unsafe_allow_html=True)
+                rc3.markdown(f'<div class="kcard" style="border-color:#e65100"><div class="lbl">Skipped</div><div class="val">{skipped}</div></div>',unsafe_allow_html=True)
+                rc4.markdown(f'<div class="kcard" style="border-color:#c62828"><div class="lbl">Failed</div><div class="val">{failed}</div></div>',unsafe_allow_html=True)
+
+            if st.session_state.notify_results is not None:
+                st.dataframe(st.session_state.notify_results, use_container_width=True, hide_index=True)
 
 # ── REPORTS ───────────────────────────────────────────────────────────────────
 elif pg=="📄 Reports":
