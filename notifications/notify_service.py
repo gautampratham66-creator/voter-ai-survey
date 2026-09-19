@@ -62,12 +62,12 @@ class VoterRecord:
     extra: dict = field(default_factory=dict)
 
     def message_text(self) -> str:
-        camp = f" Nearest Seva Kendra: {self.nearest_seva_camp}." if self.nearest_seva_camp else ""
+        camp_name = f": {self.nearest_seva_camp}" if self.nearest_seva_camp else ""
         return (
-            f"Dear {self.name}, our records show you do not yet have a Voter ID. "
-            f"You are eligible to register.{camp} "
-            f"Please visit with valid ID proof (Aadhaar/Birth Certificate) to complete enrollment. "
-            f"— District Election Office, {self.district}"
+            f"Namaste {self.name}, District Election Office ({self.district}), Govt of India. "
+            f"Our survey shows you are eligible to vote but have no Voter ID. Please visit your "
+            f"nearest Voter Seva Kendra{camp_name} with ID proof (Aadhaar/Birth Certificate) to get "
+            f"it made - it is your haq to choose your government."
         )
 
 
