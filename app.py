@@ -23,7 +23,7 @@ NOTIFY_AVAILABLE = True
 try:
     from notifications.notify_service import (
         NotificationManager, find_eligible_missing_voters_from_df,
-        SMSChannel, EmailChannel,
+        SMSChannel, EmailChannel, VoterRecord,
     )
 except Exception:
     NOTIFY_AVAILABLE = False
@@ -325,18 +325,40 @@ elif pg=="➕ Add Survey":
         c1,c2=st.columns(2)
         with c1: hn=st.text_input("Head of Family"); vill=st.text_input("Village")
         with c2: dist=st.text_input("District"); state=st.text_input("State","Uttar Pradesh")
+        if NOTIFY_AVAILABLE:
+            st.caption("📨 Phone/Email are optional — if given, anyone eligible but missing a Voter ID gets auto-notified on submit.")
         nm=st.number_input("Members",1,10,2); mems=[]
         for i in range(int(nm)):
-            mc=st.columns(4)
+            mc=st.columns(6)
             with mc[0]: mn=st.text_input("Name",key=f"n{i}")
             with mc[1]: ma=st.number_input("Age",0,120,25,key=f"a{i}")
             with mc[2]: mg=st.selectbox("Gender",["Male","Female","Other"],key=f"g{i}")
             with mc[3]: mv=st.selectbox("Has Voter ID?",["Yes","No"],key=f"v{i}")
-            mems.append({"name":mn,"age":ma,"g":mg,"vid":mv=="Yes","elig":ma>=18})
+            with mc[4]: mph=st.text_input("Phone (optional)",key=f"ph{i}")
+            with mc[5]: mem=st.text_input("Email (optional)",key=f"em{i}")
+            mems.append({"name":mn,"age":ma,"g":mg,"vid":mv=="Yes","elig":ma>=18,"phone":mph,"email":mem})
         if st.button("💾 Submit Survey"):
             if hn and dist:
                 st.session_state.fams.append({"fid":f"F{random.randint(100,999)}","head":hn,"village":vill,"dist":dist,"members":mems})
                 st.success(f"✅ '{hn}' stored!"); st.balloons()
+
+                if NOTIFY_AVAILABLE:
+                    to_notify = [m for m in mems if m["elig"] and not m["vid"] and (m.get("phone") or m.get("email"))]
+                    if to_notify:
+                        with st.spinner(f"📨 Notifying {len(to_notify)} eligible member(s) missing a Voter ID..."):
+                            records = [VoterRecord(
+                                name=m["name"], age=int(m["age"]), gender=m["g"], district=dist,
+                                phone_number=m.get("phone") or None, email=m.get("email") or None,
+                            ) for m in to_notify]
+                            manager = NotificationManager()
+                            results = manager.notify_and_log(records)
+                        for r in results:
+                            icon = {"sent":"✅ Sent","dry_run":"🧪 Dry-run","skipped":"⏭️ Skipped","failed":"❌ Failed"}[r.status]
+                            st.markdown(f'<div class="rag"><b>{icon} ({r.channel}):</b> {r.record.name} — {r.detail or "OK"}</div>',unsafe_allow_html=True)
+                    else:
+                        eligible_missing = [m for m in mems if m["elig"] and not m["vid"]]
+                        if eligible_missing:
+                            st.info(f"ℹ️ {len(eligible_missing)} member(s) are eligible but missing a Voter ID — add a phone or email above to notify them.")
             else: st.warning("Fill Head Name and District.")
 
 # ── AI AGENTS ─────────────────────────────────────────────────────────────────
